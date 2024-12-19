@@ -20,6 +20,7 @@ from lerobot.common.robot_devices.motors.utils import MotorsBus
 from lerobot.common.robot_devices.robots.utils import get_arm_id
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 
+from wasabi import color
 
 def ensure_safe_goal_position(
     goal_pos: torch.Tensor, present_pos: torch.Tensor, max_relative_target: float | list[float]
@@ -495,7 +496,11 @@ class ManipulatorRobot:
             if self.robot_type == "u850":
                 leader_pos[name] = np.array(self.leader_arms[name].get_position())
             else:
-                leader_pos[name] = self.leader_arms[name].read("Present_Position")
+                try:
+                    leader_pos[name] = self.leader_arms[name].read("Present_Position")
+                except Exception as e:                    
+                    print(color(e, fg="yellow"))
+                    return None, None
             leader_pos[name] = torch.from_numpy(leader_pos[name])
             self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
 

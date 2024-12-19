@@ -6,7 +6,10 @@ import traceback
 from copy import deepcopy
 
 import numpy as np
+from wasabi import color
 import tqdm
+
+import sys
 
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 from lerobot.common.utils.utils import capture_timestamp_utc
@@ -22,14 +25,14 @@ MAX_ID_RANGE = 252
 # which corresponds to a half rotation on the left and half rotation on the right.
 # Some joints might require higher range, so we allow up to [-270, 270] degrees until
 # an error is raised.
-LOWER_BOUND_DEGREE = -270
-UPPER_BOUND_DEGREE = 270
+LOWER_BOUND_DEGREE = -370
+UPPER_BOUND_DEGREE = 370
 # For joints in percentage (i.e. joints that move linearly like the prismatic joint of a gripper),
 # their nominal range is [0, 100] %. For instance, for Aloha gripper, 0% is fully
 # closed, and 100% is fully open. To account for slight calibration issue, we allow up to
 # [-10, 110] until an error is raised.
-LOWER_BOUND_LINEAR = -10
-UPPER_BOUND_LINEAR = 110
+LOWER_BOUND_LINEAR = -15
+UPPER_BOUND_LINEAR = 115
 
 HALF_TURN_DEGREE = 180
 
@@ -120,7 +123,6 @@ MODEL_BAUDRATE_TABLE = {
 # High number of retries is needed for feetech compared to dynamixel motors.
 NUM_READ_RETRY = 20
 NUM_WRITE_RETRY = 20
-
 
 def convert_degrees_to_steps(degrees: float | np.ndarray, models: str | list[str]) -> np.ndarray:
     """This function converts the degree range to the step range for indicating motors rotation.
@@ -404,8 +406,9 @@ class FeetechMotorsBus:
             values = self.apply_calibration(values, motor_names)
         except JointOutOfRangeError as e:
             print(e)
-            self.autocorrect_calibration(values, motor_names)
+            # self.autocorrect_calibration(values, motor_names)
             values = self.apply_calibration(values, motor_names)
+            sys.exit(1)
         return values
 
     def apply_calibration(self, values: np.ndarray | list, motor_names: list[str] | None):
@@ -641,6 +644,8 @@ class FeetechMotorsBus:
 
             # Detect a full rotation occured
             if abs(track["prev"][idx] - values[i]) > 2048:
+                print(color(f"Full rotation detected for motor {name} with values {track['prev'][idx]} and {values[i]}", fg="yellow"))
+                
                 # Position went below 0 and got reset to 4095
                 if track["prev"][idx] < values[i]:
                     # So we set negative value by adding a full rotation
@@ -754,7 +759,7 @@ class FeetechMotorsBus:
             values = values.astype(np.int32)
 
         if data_name in CALIBRATION_REQUIRED:
-            values = self.avoid_rotation_reset(values, motor_names, data_name)
+            values = self.avoid_rotation_reset(values, motor_names, data_name)        
 
         if data_name in CALIBRATION_REQUIRED and self.calibration is not None:
             values = self.apply_calibration_autocorrect(values, motor_names)

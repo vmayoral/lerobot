@@ -347,17 +347,31 @@ def replay(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="mode", required=True)
+    subparsers = parser.add_subparsers(dest="mode")
 
     # Set common options for all the subparsers
     base_parser = argparse.ArgumentParser(add_help=False)
     base_parser.add_argument(
         "--robot-path",
         type=str,
-        default="lerobot/configs/robot/koch.yaml",
+        default="lerobot/configs/robot/so100.yaml",
         help="Path to robot yaml file used to instantiate the robot using `make_robot` factory function.",
     )
     base_parser.add_argument(
+        "--robot-overrides",
+        type=str,
+        nargs="*",
+        help="Any key=value arguments to override config values (use dots for.nested=overrides)",
+    )
+
+    # Add the base arguments to the main parser as well
+    parser.add_argument(
+        "--robot-path",
+        type=str,
+        default="lerobot/configs/robot/so100.yaml",
+        help="Path to robot yaml file used to instantiate the robot using `make_robot` factory function.",
+    )
+    parser.add_argument(
         "--robot-overrides",
         type=str,
         nargs="*",
@@ -497,6 +511,8 @@ if __name__ == "__main__":
     )
     parser_replay.add_argument("--episode", type=int, default=0, help="Index of the episode to replay.")
 
+
+    parser.set_defaults(mode="teleoperate")
     args = parser.parse_args()
 
     init_logging()
