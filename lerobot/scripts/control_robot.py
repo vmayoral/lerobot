@@ -181,6 +181,54 @@ def calibrate(robot: Robot, arms: list[str] | None):
 
 
 @safe_disconnect
+def recalibrate(robot: Robot, arms: list[str] | None):
+    """Means to recalibrate the robot using the existing calibration files."""
+    if robot.robot_type.startswith("stretch"):
+        if not robot.is_connected:
+            robot.connect()
+        if not robot.is_homed():
+            robot.home()
+        return
+
+    if arms is None:
+        arms = robot.available_arms
+
+    unknown_arms = [arm_id for arm_id in arms if arm_id not in robot.available_arms]
+    available_arms_str = " ".join(robot.available_arms)
+    unknown_arms_str = " ".join(unknown_arms)
+
+    if arms is None or len(arms) == 0:
+        raise ValueError(
+            "No arm provided. Use `--arms` as argument with one or more available arms.\n"
+            f"For instance, to recalibrate all arms add: `--arms {available_arms_str}`"
+        )
+
+    if len(unknown_arms) > 0:
+        raise ValueError(
+            f"Unknown arms provided ('{unknown_arms_str}'). Available arms are `{available_arms_str}`."
+        )
+
+    # DO NOT unlink files
+    #
+    # for arm_id in arms:
+    #     arm_calib_path = robot.calibration_dir / f"{arm_id}.json"
+    #     if arm_calib_path.exists():
+    #         print(f"Removing '{arm_calib_path}'")
+    #         arm_calib_path.unlink()
+    #     else:
+    #         print(f"Calibration file not found '{arm_calib_path}'")
+
+    if robot.is_connected:
+        robot.disconnect()
+
+    # Calling `connect` automatically runs calibration
+    # when the calibration file is missing
+    robot.connect()
+    robot.disconnect()
+    print("Recalibration is done! You can now teleoperate and record datasets!")
+
+
+@safe_disconnect
 def teleoperate(
     robot: Robot, fps: int | None = None, teleop_time_s: float | None = None, display_cameras: bool = False
 ):
@@ -386,6 +434,14 @@ if __name__ == "__main__":
         help="List of arms to calibrate (e.g. `--arms left_follower right_follower left_leader`)",
     )
 
+    parser_recalib = subparsers.add_parser("recalibrate", parents=[base_parser])
+    parser_recalib.add_argument(
+        "--arms",
+        type=str,
+        nargs="*",
+        help="List of arms to calibrate (e.g. `--arms left_follower right_follower left_leader`)",
+    )
+
     parser_teleop = subparsers.add_parser("teleoperate", parents=[base_parser])
     parser_teleop.add_argument(
         "--fps", type=none_or_int, default=None, help="Frames per second (set to None to disable)"
@@ -530,6 +586,9 @@ if __name__ == "__main__":
 
     if control_mode == "calibrate":
         calibrate(robot, **kwargs)
+
+    if control_mode == "recalibrate":
+        recalibrate(robot, **kwargs)
 
     elif control_mode == "teleoperate":
         teleoperate(robot, **kwargs)

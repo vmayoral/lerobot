@@ -473,6 +473,13 @@ class ManipulatorRobot:
             self.follower_arms[name].write("Maximum_Acceleration", 254)
             self.follower_arms[name].write("Acceleration", 254)
 
+            # Exceptionally, set the offset to 3200
+            #
+            # NOTE: this is a hack for my particular robotic setup
+            # where the shoulder_lift motor is not mounted correctly
+            # and needs to be offset by 3200 to reach the correct position
+            self.follower_arms[name].write("Offset", 3200, "shoulder_lift")
+
     def set_u850_robot_preset(self):
         for name in self.follower_arms:
             print(f"Preset and enable {name} follower arm.")
