@@ -417,3 +417,18 @@ Additionally, if you are using any of the particular policy architecture, pretra
   year={2024}
 }
 ```
+
+## Quick start with SO-100
+```bash
+# Configure motors
+python lerobot/scripts/configure_motor.py  --port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5876043312-if00   --brand feetech   --model sts3215   --baudrate 1000000   --ID 2
+
+# Calibrate the follower arm
+python /home/leo/lerobot/lerobot/scripts/control_robot.py calibrate     --robot-path lerobot/configs/robot/so100.yaml --arms main_follower
+
+# Calibrate the leader arm
+python /home/leo/lerobot/lerobot/scripts/control_robot.py calibrate     --robot-path lerobot/configs/robot/so100.yaml --arms main_leader
+
+# Teleoperate the robot
+python /home/leo/lerobot/lerobot/scripts/control_robot.py teleoperate
+```
