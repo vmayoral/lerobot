@@ -13,6 +13,47 @@ class TorqueMode(enum.Enum):
     DISABLED = 0
 
 
+class JointFilter:
+    """Implements a simple low-pass filter to reduce teleoperation shakiness."""
+    def __init__(self, smoothing_factor: float = 0.5, n_joints: int = 6):
+        """Initialize the filter.
+        
+        Args:
+            smoothing_factor: Value between 0 and 1 controlling filter strength.
+                            Lower values = more smoothing. Default 0.5
+            n_joints: Number of joints to filter
+        """
+        self.smoothing_factor = smoothing_factor
+        self.n_joints = n_joints
+        self.last_output = None  # Will be initialized with first input
+        
+    def update(self, new_input: np.ndarray | list) -> np.ndarray:
+        """Apply exponential smoothing filter.
+        
+        Args:
+            new_input: New joint angles to filter (numpy array or list)
+            
+        Returns:
+            Filtered joint angles
+        """
+        # Convert input to numpy array if it's a list
+        new_input = np.array(new_input)
+        
+        # Initialize last_output with first input to avoid sudden jumps
+        if self.last_output is None:
+            self.last_output = new_input
+            return new_input
+            
+        # Simple exponential smoothing: y[n] = α * x[n] + (1-α) * y[n-1]
+        filtered = self.smoothing_factor * new_input + (1.0 - self.smoothing_factor) * self.last_output
+        self.last_output = filtered
+        return filtered
+        
+    def reset(self) -> None:
+        """Reset filter state to avoid discontinuities when re-enabling."""
+        self.last_output = None
+
+
 class XArmWrapper:
     """Wrapper for the xArm Python SDK"""
 
@@ -21,6 +62,8 @@ class XArmWrapper:
         port: str,
         motors: dict[str, tuple[int, str]],
         mock=False,
+        enable_filtering: bool = True,
+        smoothing_factor: float = 0.5,
     ):
         print("Initializing XArmWrapper")  # Debug print
         self.port = port
@@ -36,14 +79,24 @@ class XArmWrapper:
         self.MAX_SPEED_LIMIT = None
         self.MAX_ACC_LIMIT = None
 
-        # Stop event
-        self.stop_event = threading.Event()
-
-        # Create and start the digital input monitoring thread
-        print("Creating monitor thread")  # Debug print
-        self.monitor_input_thread = threading.Thread(
-            target=self.monitor_digital_input, args=(self.stop_event,)
+        # Filtering parameters
+        self.enable_filtering = enable_filtering
+        self.smoothing_factor = smoothing_factor        
+        self.joint_filter = JointFilter(
+            smoothing_factor=self.smoothing_factor,  # Empirically chosen default
+            n_joints=6  # 6 DoF (without gripper)
         )
+
+        # NOTE: Not used when in combination with GelloDynamixelWrapper
+        #
+        # # Stop event
+        # self.stop_event = threading.Event()
+
+        # # Create and start the digital input monitoring thread
+        # print("Creating monitor thread")  # Debug print
+        # self.monitor_input_thread = threading.Thread(
+        #     target=self.monitor_digital_input, args=(self.stop_event,)
+        # )
 
     @property
     def motor_names(self) -> list[str]:
@@ -81,9 +134,11 @@ class XArmWrapper:
         # Allow to read and write
         self.is_connected = True
 
-        # Start the monitoring thread after successful connection
-        self.monitor_input_thread.start()
-        print("Monitor thread started")  # Debug print
+        # NOTE: Not used when in combination with GelloDynamixelWrapper
+        #
+        # # Start the monitoring thread after successful connection
+        # self.monitor_input_thread.start()
+        # print("Monitor thread started")  # Debug print
 
     def write(self, data_name, values: int | float | np.ndarray, motor_names: str | list[str] | None = None):
         pass  # TODO (@vmayoral): implement if of interest
@@ -105,7 +160,7 @@ class XArmWrapper:
         self.api.set_gripper_speed(5000)  # default speed, as there's no way to fetch gripper speed from API
 
         # # Initialize the global speed and acceleration limits
-        # self.initialize_limits()  # not acting as expected
+        # self.initialize_limits()  # not acting as expected
 
         # assume leader by default
         if not follower:
@@ -129,11 +184,14 @@ class XArmWrapper:
         # Disconnect both arms
         self.api.disconnect()
 
-        # Stop events and threads
-        self.stop_event.set()
-        print("Waiting for monitor thread to join")  # Debug print
-        self.monitor_input_thread.join()
-        print("Monitor thread joined")  # Debug print
+
+        # NOTE: Not used when in combination with GelloDynamixelWrapper
+        #
+        # # Stop events and threads
+        # self.stop_event.set()
+        # print("Waiting for monitor thread to join")  # Debug print
+        # self.monitor_input_thread.join()
+        # print("Monitor thread joined")  # Debug print
 
         # Signal as disconnected
         self.is_connected = False
@@ -156,14 +214,30 @@ class XArmWrapper:
         return pos
 
     def set_position(self, position: np.ndarray):
-        angles = position[:-1].tolist()
+        angles = position[:-1].tolist()  # Get joint angles without gripper
         gripper_pos = int(position[-1])
+
+        # Apply filtering only to joint angles (not gripper)
+        if self.enable_filtering:
+            filtered_angles = self.joint_filter.update(angles)
+            angles = filtered_angles.tolist()
 
         # joints
         self.api.set_servo_angle_j(angles=angles, is_radian=False, wait=False)
 
-        # gripper
+        # gripper (unfiltered)
         self.api.set_gripper_position(pos=gripper_pos, wait=False)
+
+    def set_filtering(self, enable: bool) -> None:
+        """Enable or disable joint filtering.
+        
+        Args:
+            enable: True to enable filtering, False to disable
+        """
+        self.enable_filtering = enable
+        # Reset filter state when re-enabling to avoid jumps
+        if enable:
+            self.joint_filter.reset()
 
     def monitor_digital_input(self, stop_event):
         print("Starting monitor_digital_input")  # Debug print

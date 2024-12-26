@@ -49,6 +49,9 @@ follower_arms:
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
       # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
       gripper: [7, "ufactory-850"]  # gripper
+    enable_filtering: true
+    smoothing_factor: 0.1
+
   right:
     _target_: lerobot.common.robot_devices.motors.ufactory.XArmWrapper
     port: 192.168.1.218
@@ -62,6 +65,8 @@ follower_arms:
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
       # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
       gripper: [7, "ufactory-850"]  # gripper
+    enable_filtering: true
+    smoothing_factor: 0.1
 
 # cameras:
 #   top:
