@@ -51,6 +51,7 @@ follower_arms:
       gripper: [7, "ufactory-850"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
+    gripper_update_interval: 0.1  # Update gripper every 100ms
 
   right:
     _target_: lerobot.common.robot_devices.motors.ufactory.XArmWrapper
@@ -67,6 +68,7 @@ follower_arms:
       gripper: [7, "ufactory-850"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
+    gripper_update_interval: 0.1  # Update gripper every 100ms
 
 # cameras:
 #   top:

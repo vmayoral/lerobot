@@ -1,10 +1,9 @@
 import enum
 import threading
 import time
-
 import numpy as np
 from xarm.wrapper import XArmAPI
-
+from wasabi import color
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 
 
@@ -64,6 +63,8 @@ class XArmWrapper:
         mock=False,
         enable_filtering: bool = True,
         smoothing_factor: float = 0.5,
+        enable_logging: bool = False,
+        gripper_update_interval: float = 0.1,  # Update gripper every 100ms by default
     ):
         print("Initializing XArmWrapper")  # Debug print
         self.port = port
@@ -78,6 +79,9 @@ class XArmWrapper:
 
         self.MAX_SPEED_LIMIT = None
         self.MAX_ACC_LIMIT = None
+
+        # Logging parameters
+        self.enable_logging = enable_logging
 
         # Filtering parameters
         self.enable_filtering = enable_filtering
@@ -97,6 +101,12 @@ class XArmWrapper:
         # self.monitor_input_thread = threading.Thread(
         #     target=self.monitor_digital_input, args=(self.stop_event,)
         # )
+
+        # Gripper rate control
+        self.gripper_update_interval = gripper_update_interval  # seconds
+        self.last_gripper_read_time = 0
+        self.last_gripper_write_time = 0
+        self.cached_gripper_position = None
 
     @property
     def motor_names(self) -> list[str]:
@@ -207,13 +217,39 @@ class XArmWrapper:
         self.MAX_ACC_LIMIT = max(self.api.joint_acc_limit) / 3
 
     def get_position(self):
+        start_time = time.time()
+        
+        # Get servo angles
+        servo_start = time.time()
         code, angles = self.api.get_servo_angle()
-        code_gripper, pos_gripper = self.api.get_gripper_position()
-        # pos = angles[:-1] + [pos_gripper]  # discard 7th dof, which is not present in U850
+        if self.enable_logging:
+            servo_duration = time.time() - servo_start
+            print(color(f"[get_position] get_servo_angle took {servo_duration*1000:.3f} ms", fg="blue"))
+        
+        # Get gripper position at reduced rate
+        current_time = time.time()
+        if (current_time - self.last_gripper_read_time) >= self.gripper_update_interval:
+            gripper_start = time.time()
+            code_gripper, pos_gripper = self.api.get_gripper_position()
+            self.cached_gripper_position = pos_gripper
+            self.last_gripper_read_time = current_time
+            
+            if self.enable_logging:
+                gripper_duration = time.time() - gripper_start
+                print(color(f"[get_position] get_gripper_position took {gripper_duration*1000:.3f} ms", fg="blue"))
+        else:
+            pos_gripper = self.cached_gripper_position
+        
+        # Combine positions
         pos = angles + [pos_gripper]
+        
+        if self.enable_logging:
+            total_duration = time.time() - start_time
+            print(color(f"[get_position] get_position total took {total_duration*1000:.3f} ms", fg="blue"))
         return pos
 
     def set_position(self, position: np.ndarray):
+        start_time = time.time()
         angles = position[:-1].tolist()  # Get joint angles without gripper
         gripper_pos = int(position[-1])
 
@@ -222,11 +258,27 @@ class XArmWrapper:
             filtered_angles = self.joint_filter.update(angles)
             angles = filtered_angles.tolist()
 
-        # joints
+        # Set servo angles
+        servo_start = time.time()
         self.api.set_servo_angle_j(angles=angles, is_radian=False, wait=False)
+        if self.enable_logging:
+            servo_duration = time.time() - servo_start
+            print(color(f"[set_position] set_servo_angle took {servo_duration*1000:.3f} ms", fg="yellow"))
 
-        # gripper (unfiltered)
-        self.api.set_gripper_position(pos=gripper_pos, wait=False)
+        # Set gripper position at reduced rate
+        current_time = time.time()
+        if (current_time - self.last_gripper_write_time) >= self.gripper_update_interval:
+            gripper_start = time.time()
+            self.api.set_gripper_position(pos=gripper_pos, wait=False)
+            self.last_gripper_write_time = current_time
+            
+            if self.enable_logging:
+                gripper_duration = time.time() - gripper_start
+                print(color(f"[set_position] set_gripper_position took {gripper_duration*1000:.3f} ms", fg="yellow"))
+        
+        if self.enable_logging:
+            total_duration = time.time() - start_time
+            print(color(f"[set_position] set_position total took {total_duration*1000:.3f} ms", fg="yellow"))
 
     def set_filtering(self, enable: bool) -> None:
         """Enable or disable joint filtering.

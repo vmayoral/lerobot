@@ -30,38 +30,42 @@ def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, f
     if frame_index is not None:
         log_items.append(f"frame:{frame_index}")
 
-    def log_dt(shortname, dt_val_s):
+    def log_dt(shortname, dt_val_s, color='white'):
         nonlocal log_items, fps
-        info_str = f"{shortname}:{dt_val_s * 1000:5.2f} ({1/ dt_val_s:3.1f}hz)"
+        info_str = f"{shortname}:{dt_val_s * 1000:5.2f} (\033[1m{1/ dt_val_s:3.1f}hz\033[0m)"
         if fps is not None:
             actual_fps = 1 / dt_val_s
             if actual_fps < fps - 1:
                 info_str = colored(info_str, "yellow")
+            else:
+                info_str = colored(info_str, color)
+        else:
+            info_str = colored(info_str, color)
         log_items.append(info_str)
 
     # total step time displayed in milliseconds and its frequency
-    log_dt("dt", dt_s)
+    log_dt("dt", dt_s, 'cyan')
 
     # TODO(aliberts): move robot-specific logs logic in robot.print_logs()
     if not robot.robot_type.startswith("stretch"):
         for name in robot.leader_arms:
             key = f"read_leader_{name}_pos_dt_s"
             if key in robot.logs:
-                log_dt("dtRlead", robot.logs[key])
+                log_dt("dtRlead", robot.logs[key], 'green')
 
         for name in robot.follower_arms:
             key = f"write_follower_{name}_goal_pos_dt_s"
             if key in robot.logs:
-                log_dt("dtWfoll", robot.logs[key])
+                log_dt("dtWfoll", robot.logs[key], 'blue')
 
             key = f"read_follower_{name}_pos_dt_s"
             if key in robot.logs:
-                log_dt("dtRfoll", robot.logs[key])
+                log_dt("dtRfoll", robot.logs[key], 'magenta')
 
         for name in robot.cameras:
             key = f"read_camera_{name}_dt_s"
             if key in robot.logs:
-                log_dt(f"dtR{name}", robot.logs[key])
+                log_dt(f"dtR{name}", robot.logs[key], 'red')
 
     info_str = " ".join(log_items)
     logging.info(info_str)
