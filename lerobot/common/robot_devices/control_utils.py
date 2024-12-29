@@ -14,6 +14,10 @@ import cv2
 import torch
 import tqdm
 from termcolor import colored
+from flask import Flask, Response, send_from_directory, redirect, request
+import threading
+import numpy as np
+from threading import Lock
 
 from lerobot.common.datasets.populate_dataset import add_frame, safe_stop_image_writer
 from lerobot.common.policies.factory import make_policy
@@ -229,7 +233,161 @@ def record_episode(
     )
 
 
-@safe_stop_image_writer
+def create_camera_server(cameras_dict):
+    """Creates and configures a Flask server for camera streaming"""
+    app = Flask(__name__)
+    frame_locks = {name: Lock() for name in cameras_dict.keys()}
+    
+    def generate_frames(camera_name):
+        camera_key = f"observation.images.{camera_name}"
+        last_frame_time = 0
+        frame_interval = 1/30.0  # Cap at 30 FPS
+        
+        while True:
+            current_time = time.time()
+            if current_time - last_frame_time < frame_interval:
+                time.sleep(0.001)
+                continue
+                
+            with frame_locks[camera_key]:
+                frame = cameras_dict[camera_key]
+                if frame is None:
+                    time.sleep(0.001)
+                    continue
+                
+                # Convert RGB to BGR for OpenCV
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                
+                # Resize efficiently
+                frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_NEAREST)
+                
+                # Use lower JPEG quality for faster transmission
+                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                if not ret:
+                    continue
+                
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            last_frame_time = current_time
+
+    @app.route('/video_feed/<camera_name>')
+    def video_feed(camera_name):
+        camera_key = f"observation.images.{camera_name}"
+        if camera_key not in cameras_dict:
+            return f"Camera not found: {camera_name}. Available cameras: {[k.split('.')[-1] for k in cameras_dict.keys()]}", 404
+        return Response(generate_frames(camera_name),
+                       mimetype='multipart/x-mixed-replace; boundary=frame')
+
+    @app.route('/')
+    def index():
+        if cameras_dict:
+            first_camera = list(cameras_dict.keys())[0].split('.')[-1]
+            return redirect(f'/{first_camera}')
+        return "No cameras available", 404
+
+    @app.route('/<camera_name>')
+    def camera_view(camera_name):
+        camera_key = f"observation.images.{camera_name}"
+        if camera_key not in cameras_dict:
+            return f"Camera not found: {camera_name}. Available cameras: {[k.split('.')[-1] for k in cameras_dict.keys()]}", 404
+            
+        # Get rotation from session storage, default to 0        
+        rotation = request.args.get('rotation', '0')
+            
+        html = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{camera_name} Camera</title>
+            <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+            <style>
+                body, html {{
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    overflow: hidden;
+                    background: #000;
+                }}
+                img {{
+                    width: 100vw;
+                    height: 100vh;
+                    object-fit: contain;
+                    transition: transform 0.3s;
+                }}
+                .nav {{
+                    position: fixed;
+                    top: 10px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0,0,0,0.7);
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    z-index: 1000;
+                }}
+                .nav a {{
+                    color: white;
+                    text-decoration: none;
+                    margin: 0 15px;
+                    padding: 5px 10px;
+                    border-radius: 3px;
+                    transition: background 0.3s;
+                }}
+                .nav a:hover {{
+                    background: rgba(255,255,255,0.2);
+                }}
+                .nav a.active {{
+                    background: rgba(255,255,255,0.3);
+                }}
+                .rotate-btn {{
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background: rgba(0,0,0,0.7);
+                    color: white;
+                    border: none;
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    z-index: 1000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .rotate-btn:hover {{
+                    background: rgba(0,0,0,0.9);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="nav">
+                {' '.join(f'<a href="/{cam.split(".")[-1]}" {"class=active" if cam.split(".")[-1] == camera_name else ""}>{cam.split(".")[-1]}</a>' for cam in cameras_dict.keys())}
+            </div>
+            <img id="camera-feed" src="/video_feed/{camera_name}?_={time.time()}" style="transform: rotate({rotation}deg)"/>
+            <button class="rotate-btn" onclick="rotateImage()">⟳</button>
+            
+            <script>
+                // Load saved rotation from localStorage or use URL param
+                let currentRotation = parseInt(localStorage.getItem('{camera_name}_rotation') || '{rotation}' || '0');
+                document.getElementById('camera-feed').style.transform = `rotate(${{currentRotation}}deg)`;
+                
+                function rotateImage() {{
+                    currentRotation = (currentRotation + 90) % 360;
+                    document.getElementById('camera-feed').style.transform = `rotate(${{currentRotation}}deg)`;
+                    localStorage.setItem('{camera_name}_rotation', currentRotation);
+                }}
+            </script>
+        </body>
+        </html>
+        '''
+        return html
+
+    return app, frame_locks
+
+
 def control_loop(
     robot,
     control_time_s=None,
@@ -241,6 +399,8 @@ def control_loop(
     device=None,
     use_amp=None,
     fps=None,
+    enable_web_server=False,
+    web_server_port=5000,
 ):
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
@@ -257,6 +417,33 @@ def control_loop(
 
     if dataset is not None and fps is not None and dataset["fps"] != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset['fps']} != {fps}).")
+
+    # Initialize web server if enabled
+    if enable_web_server:
+        observation = robot.capture_observation()
+        camera_frames = {}
+        frame_locks = {}
+        
+        # Initialize frames with first observation
+        for key in observation:
+            if "image" in key:
+                camera_frames[key] = observation[key].numpy()
+                frame_locks[key] = Lock()
+
+        if not camera_frames:
+            logging.warning("No cameras found in observation!")
+            return
+
+        logging.info(f"Found cameras: {list(camera_frames.keys())}")
+        
+        app, frame_locks = create_camera_server(camera_frames)
+        server_thread = threading.Thread(
+            target=lambda: app.run(host='0.0.0.0', port=web_server_port, debug=False, 
+                                 threaded=True, use_reloader=False)
+        )
+        server_thread.daemon = True
+        server_thread.start()
+        logging.info(f"Web server started on port {web_server_port}")
 
     timestamp = 0
     start_episode_t = time.perf_counter()
@@ -295,6 +482,14 @@ def control_loop(
         if events["exit_early"]:
             events["exit_early"] = False
             break
+
+        # Update camera frames for web server if enabled
+        if enable_web_server:
+            for key in observation:
+                if "image" in key:
+                    if key in camera_frames:
+                        with frame_locks[key]:
+                            camera_frames[key] = observation[key].numpy()
 
 
 def reset_environment(robot, events, reset_time_s, episode_index):

@@ -70,21 +70,22 @@ follower_arms:
     smoothing_factor: 0.1
     gripper_update_interval: 0.1  # Update gripper every 100ms
 
-# cameras:
-#   top:
-#     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
-#     camera_index: 4
-#     fps: 30
-#     width: 640
-#     height: 480
-#   wrist:
-#     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
-#     camera_index: 10
-#     fps: 30
-#     width: 640
-#     height: 480
-
-# # ~ Koch specific settings ~
-# # Sets the leader arm in torque mode with the gripper motor set to this angle. This makes it possible
-# # to squeeze the gripper and have it spring back to an open position on its own.
-# gripper_open_degree: 35.156
+cameras:
+  top:
+    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+    camera_index: 10
+    fps: 30
+    width: 640
+    height: 480
+  wrist_left:
+    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+    camera_index: 4
+    fps: 30
+    width: 640
+    height: 480
+  wrist_right:
+    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+    camera_index: 16
+    fps: 30
+    width: 640
+    height: 480

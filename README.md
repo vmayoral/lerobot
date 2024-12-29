@@ -418,7 +418,17 @@ Additionally, if you are using any of the particular policy architecture, pretra
 }
 ```
 
-## Gello
+## Notes
+
+### Teleop
+
+Launch teleop with:
+```bash
+export PYNPUT_BACKEND=xorg
+python lerobot/scripts/control_robot.py teleoperate --robot-path lerobot/configs/robot/cooper.yaml
+```
+
+### Gello
 
 Gello integration can be added by installing first the package using the corresponding fork of the `gello` package:
 
@@ -436,3 +446,11 @@ On Linux, you can do this by running:
 ```bash
 sudo chmod 666 /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT9BTDLW-if00-port0 
 ```
+
+### Figuring out the camera indices
+
+To figure out the camera indices, you can run:
+```bash
+python lerobot/common/robot_devices/cameras/opencv.py
+```
+Then inspect the `output` dir.
