@@ -280,6 +280,20 @@ class XArmWrapper:
             total_duration = time.time() - start_time
             print(color(f"[set_position] set_position total took {total_duration*1000:.3f} ms", fg="yellow"))
 
+    def set_manual_mode(self, light: bool):
+        self.api.set_tgpio_digital(ionum=2, value=1 if light else 0)
+        # manual mode
+        self.api.clean_error()
+        self.api.set_mode(2)
+        self.api.set_state(0)
+
+    def disable_manual_mode(self):
+        self.api.set_tgpio_digital(ionum=2, value=0)
+        # disable manual mode
+        self.api.clean_error()
+        self.api.set_mode(0)
+        self.api.set_state(0)
+    
     def set_filtering(self, enable: bool) -> None:
         """Enable or disable joint filtering.
         

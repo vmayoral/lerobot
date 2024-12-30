@@ -48,7 +48,7 @@ follower_arms:
       joint5: [5, "ufactory-850"]  # +/- 124 degrees
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
       # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
-      gripper: [7, "ufactory-850"]  # gripper
+      gripper: [7, "gripper"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
     gripper_update_interval: 0.1  # Update gripper every 100ms
@@ -65,7 +65,7 @@ follower_arms:
       joint5: [5, "ufactory-850"]  # +/- 124 degrees
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
       # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
-      gripper: [7, "ufactory-850"]  # gripper
+      gripper: [7, "gripper"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
     gripper_update_interval: 0.1  # Update gripper every 100ms
@@ -85,7 +85,7 @@ cameras:
     height: 480
   wrist_right:
     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
-    camera_index: 16
+    camera_index: 17
     fps: 30
     width: 640
     height: 480
