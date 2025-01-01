@@ -14,14 +14,18 @@
 # ```
 
 seed: 1000
-dataset_repo_id: accelerationrobotics/cooper_position1
+dataset_repo_id: vmayoral/cooper_position2
 
 override_dataset_stats:
   observation.images.top:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.images.wrist:
+  observation.images.wrist_left:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
+  observation.images.wrist_right:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
@@ -45,8 +49,8 @@ training:
     action: "[i / ${fps} for i in range(${policy.chunk_size})]"
 
 eval:
-  n_episodes: 50
-  batch_size: 50
+  n_episodes: 20
+  batch_size: 20
 
 # See `configuration_act.py` for more details.
 policy:

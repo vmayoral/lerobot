@@ -4,6 +4,7 @@ from dynamixel_sdk import *
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 
 from gello.agents.gello_agent import GelloAgent
+from wasabi import color
 
 class TorqueMode(enum.Enum):
     ENABLED = 1
@@ -77,7 +78,6 @@ class GelloDynamixelWrapper:
             return
 
         self.gello = agent = GelloAgent(port=self.port, start_joints=None)
-
         self.is_connected = True
 
     def disconnect(self):
@@ -98,15 +98,16 @@ class GelloDynamixelWrapper:
         if self.mock:
             return [0.0] * (len(self.joint_ids) + 1)
 
-        rads_pos = self.gello.act(None).tolist()
+        rads_pos = self.gello.act(None, ufactory_hack=True).tolist()
+        # print(color(f"rads_pos: {rads_pos}, len: {len(rads_pos)}", fg="red"))  # debug
         degrees_pos = np.rad2deg(rads_pos[:-1])  # Convert all but last to degrees
 
         # NOTE: heuristic obtained from the code of the XArmRobot in the `gello` package
         #
         gripper_value = self.GRIPPER_OPEN + rads_pos[-1] * (self.GRIPPER_CLOSE - self.GRIPPER_OPEN)
         degrees_pos = degrees_pos.tolist()  # Convert to list for appending
-        degrees_pos.append(gripper_value)
-        
+
+        degrees_pos.append(gripper_value)        
         return degrees_pos
 
     def set_position(self, position: np.ndarray):

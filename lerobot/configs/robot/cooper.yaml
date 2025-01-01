@@ -21,7 +21,8 @@ leader_arms:  # L
       joint4: [4, "xl330-m288"]
       joint5: [5, "xl330-m288"]
       joint6: [6, "xl330-m288"]
-      gripper: [7, "xl330-m077"]
+      joint7: [7, "xl330-m288"]  # Dummy joint
+      gripper: [8, "xl330-m077"]
   right:
     _target_: lerobot.common.robot_devices.motors.gello.GelloDynamixelWrapper
     port: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT9BTEGF-if00-port0"
@@ -33,7 +34,8 @@ leader_arms:  # L
       joint4: [4, "xl330-m288"]
       joint5: [5, "xl330-m288"]
       joint6: [6, "xl330-m288"]
-      gripper: [7, "xl330-m077"]
+      joint7: [7, "xl330-m288"]  # Dummy joint
+      gripper: [8, "xl330-m077"]
 
 follower_arms:
   left:
@@ -47,8 +49,8 @@ follower_arms:
       joint4: [4, "ufactory-850"]  # +/- 360 degrees
       joint5: [5, "ufactory-850"]  # +/- 124 degrees
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
-      # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
-      gripper: [7, "gripper"]  # gripper
+      joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
+      gripper: [8, "gripper"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
     gripper_update_interval: 0.1  # Update gripper every 100ms
@@ -64,8 +66,8 @@ follower_arms:
       joint4: [4, "ufactory-850"]  # +/- 360 degrees
       joint5: [5, "ufactory-850"]  # +/- 124 degrees
       joint6: [6, "ufactory-850"]  # +/- 360 degrees
-      # joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
-      gripper: [7, "gripper"]  # gripper
+      joint7: [7, "ufactory-850"]  # NOT PRESENT in 850
+      gripper: [8, "gripper"]  # gripper
     enable_filtering: true
     smoothing_factor: 0.1
     gripper_update_interval: 0.1  # Update gripper every 100ms

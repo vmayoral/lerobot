@@ -11,6 +11,7 @@ import warnings
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Sequence
+from wasabi import color
 
 import numpy as np
 import torch
@@ -514,6 +515,9 @@ class ManipulatorRobot:
                     leader_pos[name] = self.leader_arms[name].read("Present_Position")
                 present_pos = torch.from_numpy(leader_pos[name])
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
+
+            # print(color(f"leader_pos[{name}]: {leader_pos[name]}", fg="blue"))  # debug
+            # print(color(f"goal_pos: {goal_pos}", fg="blue"))  # debug
 
             # Used when record_data=True
             follower_goal_pos[name] = goal_pos

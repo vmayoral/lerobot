@@ -26,6 +26,8 @@ from lerobot.common.robot_devices.utils import busy_wait
 from lerobot.common.utils.utils import get_safe_torch_device, init_hydra_config, set_global_seed
 from lerobot.scripts.eval import get_pretrained_policy_path
 
+from wasabi import color
+import pprint
 
 def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, fps=None):
     log_items = []
@@ -452,6 +454,10 @@ def control_loop(
 
         if teleoperate:
             observation, action = robot.teleop_step(record_data=True)
+
+            # # debug
+            # print(color(f"observation.state: {observation['observation.state']}", fg="green"))
+            # print(color(f"action.action: {action['action']}", fg="yellow"))
         else:
             observation = robot.capture_observation()
 
