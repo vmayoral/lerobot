@@ -31,14 +31,14 @@ override_dataset_stats:
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
 
 training:
-  offline_steps: 80000
+  offline_steps: 100000
   online_steps: 0
   eval_freq: -1
   save_freq: 10000
   log_freq: 100
   save_checkpoint: true
 
-  batch_size: 8
+  batch_size: 16
   lr: 1e-5
   lr_backbone: 1e-5
   weight_decay: 1e-4
@@ -49,8 +49,8 @@ training:
     action: "[i / ${fps} for i in range(${policy.chunk_size})]"
 
 eval:
-  n_episodes: 20
-  batch_size: 20
+  n_episodes: 50
+  batch_size: 50
 
 # See `configuration_act.py` for more details.
 policy:
