@@ -14,7 +14,7 @@
 # ```
 
 seed: 1000
-dataset_repo_id: vmayoral/cooper_position2
+dataset_repo_id: vmayoral/cooper_position3
 
 override_dataset_stats:
   observation.images.top:
