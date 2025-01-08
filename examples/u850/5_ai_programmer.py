@@ -75,6 +75,7 @@ class RobotMain(object):
     """
     # Gripper position constants
     GRIPPER_OPEN_POS = 800
+    GRIPPER_APPROACH_POS = 200
     GRIPPER_CLOSE_POS = 0
 
     def __init__(self, robot, name, trajectory_config=None, **kwargs):
@@ -86,6 +87,7 @@ class RobotMain(object):
         self._tcp_acc = 2000
         self._angle_speed = 20
         self._angle_acc = 500
+        self.long_click_state = False
         self._vars = {}
         self._funcs = {}
         
@@ -274,6 +276,11 @@ class RobotMain(object):
         if trajectory_name != self._current_recording:
             raise ValueError(color(f"Trajectory name mismatch: started with {self._current_recording} but stopping with {trajectory_name}", fg="red", bold=True))
             
+        # extract the trajectory number from the name
+        traj_num = int(trajectory_name.strip('_').split('_')[0])
+        time.sleep(1.5)
+        self.blink_led(traj_num)
+
         self._arm.stop_record_trajectory()
         self._arm.save_record_trajectory(f"{trajectory_name}.traj")
         
@@ -344,17 +351,42 @@ class RobotMain(object):
             self.pprint(color(f'PlayTrajectoryException: {e}', fg="red"))
             return False
 
-    def add_new_trajectory(self):
-        """Add a new trajectory by starting to record it
-        
+    @llm_enabled("Add a new trajectory. This will start recording a new trajectory. Optionally specify a trajectory number.")
+    def add_new_trajectory(self, trajectory_number: Annotated[Optional[int], "The trajectory number to use. If not provided, will use next available number"] = None) -> str:
+        """Add a new trajectory by starting to record it and return the trajectory name.
+
+        Args:
+            trajectory_number: Optional trajectory number to use (1-99). If not provided,
+                          will automatically use the next available number.
+        Returns:
+            str: Name of the new trajectory in format '_<number><arm>'
+        Raises:
+            ValueError: If trajectory_number is invalid or already exists
+
         NOTE: stop and save should happen outside
         """
-        next_traj_num = max(self._trajectory_numbers) + 1 if self._trajectory_numbers else 1
-        trajectory_name = f'_{next_traj_num}{self.name}'
+        if self._current_recording is not None:
+            return self._current_recording  # recording already in progress
+
+        # Validate trajectory_number if provided
+        if trajectory_number is not None:
+            if not isinstance(trajectory_number, int):
+                raise ValueError("Trajectory number must be an integer")
+        else:
+            trajectory_number = max(self._trajectory_numbers) + 1 if self._trajectory_numbers else 1
+
+        trajectory_name = f'_{trajectory_number}{self.name}'
         print(color(f"Started recording new trajectory: {trajectory_name}", fg="green"))
-        
         self.set_manual_mode()
         self.start_recording_trajectory(trajectory_name)
+
+        # Handle long click state for manual button control
+        if not self.long_click_state:
+            self.long_click_state = True
+            self.set_led(True)  # mark that we're in long click mode
+            self._current_recording = trajectory_name
+
+        return trajectory_name
 
     def monitor_digital_input(self, stop_event):
         single_click_time = 0.2
@@ -364,8 +396,7 @@ class RobotMain(object):
         last_press_time = 0
         last_click_time = 0
         long_click_detected = False
-        click_count = 0
-        long_click_state = False  # starts in motion mode
+        click_count = 0        
 
         while not stop_event.is_set():
             code, value = self._arm.get_tgpio_digital(ionum=2)
@@ -377,19 +408,19 @@ class RobotMain(object):
                         last_press_time = current_time
                     elif not long_click_detected and current_time - last_press_time >= long_click_time:
                         long_click_detected = True
-                        long_click_state = not long_click_state
-                        if long_click_state:
+                        self.long_click_state = not self.long_click_state
+                        if self.long_click_state:
                             self.set_led(True)
                             try:
-                                self.add_new_trajectory()
-                                print(color("Long click detected -> Started recording a new trajectory", fg="blue"))
+                                self._current_recording = self.add_new_trajectory()
+                                print(color(f"Long click detected -> Started recording a new trajectory: {self._current_recording}", fg="blue"))
                             except RuntimeError as e:
                                 print(color(f"Warning: {str(e)}", fg="yellow"))
                         else:
                             self.set_led(False)
                             try:
+                                print(color(f"Long click detected -> Stopped recording the current trajectory: {self._current_recording}", fg="blue"))
                                 self.stop_recording_trajectory(self._current_recording)
-                                print(color("Long click detected -> Stopped recording the current trajectory", fg="blue"))
                             except RuntimeError as e:
                                 print(color(f"Warning: {str(e)}", fg="yellow"))
                 else:  # Button released
@@ -450,6 +481,8 @@ class RobotMain(object):
             ret2 = self._arm.get_err_warn_code()
             self.pprint(color('{}, code={}, connected={}, state={}, error={}, ret1={}. ret2={}'.format(
                 label, code, self._arm.connected, self._arm.state, self._arm.error_code, ret1, ret2), fg="red"))
+            
+            self.clear_errors()
         return self.is_alive
 
     @staticmethod
@@ -541,20 +574,20 @@ class RobotMain(object):
             raise RuntimeError(f"Failed to set gripper position to {position}")
 
     # Robot Main Run
-    def run(self, start_event=None, completion_event=None, trajectory_events=None, trajectory_syncs=None):
+    def run(self, start_event=None, completion_event=None, trajectory_events=None, trajectory_syncs=None, trajectory_config=None):
         try:
             if start_event:
                 start_event.wait()  # Wait for start signal
                 
-            # Initial gripper position
             try:
-                self.set_gripper("open")
+                # Initial gripper position
+                self.set_gripper(RobotMain.GRIPPER_APPROACH_POS)
             except Exception as e:
                 self.pprint(color(f'Failed to open gripper: {e}', fg="red"))
                 return
 
             # Execute each trajectory in sequence
-            for i, traj_num in enumerate(self._trajectory_numbers):
+            for i, traj_num in enumerate(trajectory_config['trajectories']):
                 self.blink_led(traj_num)
                 
                 # Use play_trajectory method instead of direct playback
@@ -592,7 +625,7 @@ class RobotMain(object):
     def get_function_definitions(cls) -> list:
         """Generate OpenAI function definitions from LLM-enabled methods"""
         import inspect
-        from typing import get_type_hints, get_args, get_origin
+        from typing import get_type_hints, get_args, get_origin, Union, List
         
         function_definitions = []
         
@@ -604,6 +637,7 @@ class RobotMain(object):
             # Get signature and docstring
             sig = inspect.signature(method)
             doc = inspect.getdoc(method)
+            type_hints = get_type_hints(method, include_extras=True)
             
             parameters = {
                 "type": "object",
@@ -615,7 +649,7 @@ class RobotMain(object):
                         "default": "both"
                     }
                 },
-                "required": []  # Start with empty required list
+                "required": []
             }
             
             # Process each parameter
@@ -623,70 +657,66 @@ class RobotMain(object):
                 if param_name == 'self':
                     continue
                     
-                param_type = get_type_hints(method, include_extras=True).get(param_name)
+                param_type = type_hints.get(param_name)
                 if not param_type:
                     continue
+
+                # Debug print
+                print(f"Processing parameter {param_name} with type {param_type}")
                     
-                # Get annotation description if available
-                annotation_args = get_args(param_type)
-                description = annotation_args[1] if len(annotation_args) > 1 else None
-                base_type = annotation_args[0] if annotation_args else param_type
+                # Initialize parameter schema
+                param_schema = {}
+                description = None
+                is_optional = False
+                base_type = param_type
                 
-                # Convert Python type to JSON schema type
-                if base_type == bool:
-                    param_schema = {"type": "boolean"}
-                elif base_type == int:
-                    param_schema = {"type": "integer"}
-                elif base_type == float:
-                    param_schema = {"type": "number"}
-                elif base_type == str:
-                    param_schema = {"type": "string"}
-                elif get_origin(base_type) == Literal:
-                    param_schema = {
-                        "type": "string",
-                        "enum": list(get_args(base_type))
-                    }
-                elif get_origin(base_type) == Union:
-                    # Handle Union types (like Union[Literal["open", "close"], int])
-                    union_types = get_args(base_type)
-                    # If one type is Literal, use its values in enum
-                    literals = [t for t in union_types if get_origin(t) == Literal]
-                    if literals:
-                        enum_values = []
-                        for lit in literals:
-                            enum_values.extend(get_args(lit))
-                        param_schema = {
-                            "type": "string",
-                            "enum": enum_values + ["0", "50", "100", "200", "400", "600", "800"]  # Add common numeric values
-                        }
-                    else:
-                        continue  # Skip complex unions
-                elif get_origin(base_type) == list:
-                    # Get the type of list elements
-                    element_type = get_args(base_type)[0]
-                    if element_type == int:
-                        param_schema = {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of integer indices"
-                        }
-                    else:
-                        continue  # Skip other list types
-                else:
-                    continue  # Skip other complex types
+                # Handle Optional types
+                if get_origin(param_type) == Union and type(None) in get_args(param_type):
+                    is_optional = True
+                    base_type = next(t for t in get_args(param_type) if t != type(None))
                     
+                # Handle Annotated types
+                if get_origin(base_type) == Annotated:
+                    annotated_args = get_args(base_type)
+                    base_type = annotated_args[0]
+                    if len(annotated_args) > 1:
+                        description = annotated_args[1]
+                
+                # Handle List types
+                if get_origin(base_type) == list or get_origin(base_type) == List:
+                    param_schema["type"] = "array"
+                    list_type = get_args(base_type)[0]
+                    if list_type == int:
+                        param_schema["items"] = {"type": "integer"}
+                    elif list_type == str:
+                        param_schema["items"] = {"type": "string"}
+                    elif list_type == float:
+                        param_schema["items"] = {"type": "number"}
+                    elif list_type == bool:
+                        param_schema["items"] = {"type": "boolean"}
+                # Handle basic types
+                elif base_type == bool:
+                    param_schema["type"] = "boolean"
+                elif base_type == int:
+                    param_schema["type"] = "integer"
+                elif base_type == float:
+                    param_schema["type"] = "number"
+                elif base_type == str:
+                    param_schema["type"] = "string"
+                elif get_origin(base_type) == Literal:
+                    param_schema["type"] = "string"
+                    param_schema["enum"] = list(get_args(base_type))
+                
+                # Add description if available
                 if description:
                     param_schema["description"] = description
                     
-                parameters["properties"][param_name] = param_schema
-                
-                # Add to required list if no default value and not Optional
-                if param.default == param.empty and not (
-                    get_origin(base_type) == Union and type(None) in get_args(base_type)
-                ):
-                    parameters["required"].append(param_name)
-            
-            # Always add 'arm' to properties but not to required (since it has a default)
+                # Add parameter to properties if we successfully determined its type
+                if param_schema:
+                    parameters["properties"][param_name] = param_schema
+                    # Add to required list if not optional and no default value
+                    if not is_optional and param.default == param.empty:
+                        parameters["required"].append(param_name)
             
             function_def = {
                 "type": "function",
@@ -697,21 +727,25 @@ class RobotMain(object):
                 }
             }
             
+            # # Debug print
+            # print(f"\nGenerated function definition for {name}:")
+            # print(json.dumps(function_def, indent=2))
+            
             function_definitions.append(function_def)
             
         return function_definitions
 
     @llm_enabled("Run or execute trajectories on the robot arm. Could be on the left or right arm, or both.")
     def execute_trajectories(self, 
+                            trajectory_indices: Annotated[List[int], "List of trajectory indices to execute (e.g. [0,1,2]). If not specified, executes all trajectories in order"]=None,
                             wait_for_start: Annotated[bool, "Whether to wait for a start signal before beginning"]=False,
-                            synchronize_arms: Annotated[bool, "Whether to synchronize movements between left and right arms"]=True,
-                            trajectory_indices: Annotated[List[int], "List of trajectory indices to execute (e.g. [0,1,2]). If not specified, executes all trajectories in order"]=None) -> None:
+                            synchronize_arms: Annotated[bool, "Whether to synchronize movements between left and right arms"]=True) -> None:
         """Execute the robot's sequence of recorded trajectories
         
         Args:
+            trajectory_indices: List of trajectory indices (0-based) to execute. If None, executes all trajectories
             wait_for_start: If True, wait for an external start signal before beginning
             synchronize_arms: If True, synchronize movements between left and right arms
-            trajectory_indices: List of trajectory indices (0-based) to execute. If None, executes all trajectories
 
         NOTE: This function is not used and sits here as a placeholder because it does not have access
         to both robots for synchronization. What's used is the execute_trajectories_sync function below.
@@ -878,11 +912,14 @@ class FunctionCallParser:
 def run_robot_threads(robot_left, robot_right, start_event, left_completion, right_completion, 
                      left_trajectory_events, right_trajectory_events, trajectory_syncs, trajectory_config):
     """Set up and manage robot execution threads"""
+
+    print(trajectory_config)
+
     # Start robot threads
     left_thread = threading.Thread(target=robot_left.run, 
-                                 args=(start_event, left_completion, left_trajectory_events, trajectory_syncs))
+                                 args=(start_event, left_completion, left_trajectory_events, trajectory_syncs, trajectory_config))
     right_thread = threading.Thread(target=robot_right.run, 
-                                  args=(start_event, right_completion, right_trajectory_events, trajectory_syncs))
+                                  args=(start_event, right_completion, right_trajectory_events, trajectory_syncs, trajectory_config))
     left_thread.start()
     right_thread.start()
 
@@ -1073,7 +1110,7 @@ def setup_speech_thread(stop_monitor, speech_trigger, mic_lock, robot_left, robo
                 # Convert string representation of list to actual list if needed
                 if isinstance(trajectory_indices, str):
                     try:
-                        # Handle various string formats like "[0,1]" or "0, 1"
+                        # Handle various string formats like "[1,2]" or "1, 2"
                         trajectory_indices = json.loads(trajectory_indices.replace(' ', ''))
                     except json.JSONDecodeError:
                         # Try comma-separated format
@@ -1083,58 +1120,52 @@ def setup_speech_thread(stop_monitor, speech_trigger, mic_lock, robot_left, robo
                 if not isinstance(trajectory_indices, list):
                     trajectory_indices = [trajectory_indices]
                 trajectory_indices = [int(idx) for idx in trajectory_indices]
-            
-            # Create synchronization events
-            start_event = threading.Event()
-            left_completion = threading.Event()
-            right_completion = threading.Event()
-            
-            # Get wait_for_start parameter (default False)
-            wait_for_start = args.get('wait_for_start', False)
-            
-            # Get synchronize_arms parameter (default True) 
-            synchronize_arms = args.get('synchronize_arms', True)
-            
-            try:
-                # If trajectory_indices is provided, validate and convert to trajectory numbers
-                if trajectory_indices is not None:
-                    max_index = len(robot_left._trajectory_numbers) - 1
-                    if not all(0 <= idx <= max_index for idx in trajectory_indices):
-                        raise ValueError(f"Trajectory indices must be between 0 and {max_index}")
-                    selected_trajectories = [robot_left._trajectory_numbers[idx] for idx in trajectory_indices]
-                    selected_gripper_positions = [robot_left._gripper_positions[idx] for idx in trajectory_indices]
-                else:
-                    selected_trajectories = robot_left._trajectory_numbers
-                    selected_gripper_positions = robot_left._gripper_positions
                 
-                # Create events for selected trajectories
-                left_trajectory_events = [threading.Event() for _ in selected_trajectories]
-                right_trajectory_events = [threading.Event() for _ in selected_trajectories]
-                trajectory_syncs = [threading.Event() for _ in selected_trajectories] if synchronize_arms else None
+                # Validate indices are within bounds
+                #
+                # Note: start from 1 because the trajectory numbers start from 1
+                max_index = len(robot_left._trajectory_numbers)
+                if not all(1 <= idx <= max_index for idx in trajectory_indices):
+                    raise ValueError(f"Trajectory indices must be between 1 and {max_index}")
+                    
+                # Create new temporary trajectory config with only selected trajectories
+                #
+                # Note: We subtract 1 from the indices because the trajectory numbers start from 1
+                selected_trajectories = [robot_left._trajectory_numbers[idx - 1] for idx in trajectory_indices]
+                selected_gripper_positions = [robot_left._gripper_positions[idx - 1] for idx in trajectory_indices]
                 
-                # Create temporary trajectory config for selected trajectories
                 temp_trajectory_config = {
                     'trajectories': selected_trajectories,
                     'gripper_positions': selected_gripper_positions
                 }
-                
-                # Run the trajectories using the existing run_robot_threads function
-                run_robot_threads(
-                    robot_left=robot_left,
-                    robot_right=robot_right,
-                    start_event=start_event,
-                    left_completion=left_completion,
-                    right_completion=right_completion,
-                    left_trajectory_events=left_trajectory_events,
-                    right_trajectory_events=right_trajectory_events,
-                    trajectory_syncs=trajectory_syncs,
-                    trajectory_config=temp_trajectory_config
-                )
-                return True
-                
-            except Exception as e:
-                print(color(f"Error executing trajectories: {str(e)}", fg="red"))
-                return False
+            else:
+                # If no indices provided, use all trajectories
+                temp_trajectory_config = {
+                    'trajectories': robot_left._trajectory_numbers[:],
+                    'gripper_positions': robot_left._gripper_positions[:]
+                }
+
+            # Create events for selected trajectories only
+            start_event = threading.Event()
+            left_completion = threading.Event()
+            right_completion = threading.Event()
+            left_trajectory_events = [threading.Event() for _ in temp_trajectory_config['trajectories']]
+            right_trajectory_events = [threading.Event() for _ in temp_trajectory_config['trajectories']]
+            trajectory_syncs = [threading.Event() for _ in temp_trajectory_config['trajectories']] if args.get('synchronize_arms', True) else None
+
+            # Run the trajectories using the temporary config
+            run_robot_threads(
+                robot_left=robot_left,
+                robot_right=robot_right,
+                start_event=start_event,
+                left_completion=left_completion,
+                right_completion=right_completion,
+                left_trajectory_events=left_trajectory_events,
+                right_trajectory_events=right_trajectory_events,
+                trajectory_syncs=trajectory_syncs,
+                trajectory_config=temp_trajectory_config  # Use temporary config with selected trajectories
+            )
+            return True
 
         # Normal function execution for other functions
         robots_to_use = []
@@ -1187,6 +1218,22 @@ def setup_speech_thread(stop_monitor, speech_trigger, mic_lock, robot_left, robo
         # Get function definitions and generate help text
         function_calls = RobotMain.get_function_definitions()
         function_help = generate_function_help_text(function_calls)
+        
+        print(color("\nFunction calls:", fg="blue", bold=True))
+        for func in function_calls:
+            f = func['function']
+            print(color(f"\n  {f['name']}:", fg="cyan", bold=True))
+            print(color(f"    Description: {f['description']}", fg="green"))
+            
+            # Print parameters if they exist
+            if 'parameters' in f and 'properties' in f['parameters']:
+                print(color("    Parameters:", fg="yellow", bold=True))
+                for param_name, param in f['parameters']['properties'].items():
+                    desc = param.get('description', 'No description')
+                    if 'enum' in param:
+                        desc += f" (Valid values: {', '.join(map(str, param['enum']))})"
+                    print(color(f"      - {param_name}: ", fg="blue") + color(desc, fg="white"))
+        print()
 
         while not stop_event.is_set():
             # Wait for wake word trigger
@@ -1372,22 +1419,20 @@ if __name__ == '__main__':
     # Define initial trajectory configuration
     trajectory_config = {
         'trajectories': [1, 2],  # Trajectory numbers
-        'gripper_positions': [0, RobotMain.GRIPPER_OPEN_POS]  # Corresponding gripper positions
+        'gripper_positions': [RobotMain.GRIPPER_APPROACH_POS, RobotMain.GRIPPER_APPROACH_POS]  # Corresponding gripper positions
     }
 
+    # trajectory_config = {
+    #     'trajectories': [],  # Trajectory numbers
+    #     'gripper_positions': []  # Corresponding gripper positions
+    # }
+
+
     # Create synchronization events
-    # start_event = threading.Event()
-    # left_completion = threading.Event()
-    # right_completion = threading.Event()
     stop_monitor = threading.Event()  # Event to stop monitoring threads
     speech_trigger = threading.Event()  # Event to trigger speech recognition
     speech_trigger.detected_word = None  # Add attribute to track detected wake word
     mic_lock = threading.Lock()  # Lock for microphone access
-
-    # # Create events for each trajectory
-    # left_trajectory_events = [threading.Event() for _ in trajectory_config['trajectories']]
-    # right_trajectory_events = [threading.Event() for _ in trajectory_config['trajectories']]
-    # trajectory_syncs = [threading.Event() for _ in trajectory_config['trajectories']]
 
     # Initialize both arms
     arm_left = XArmAPI('192.168.1.236', baud_checkset=False)
@@ -1401,9 +1446,6 @@ if __name__ == '__main__':
     wake_word_thread = setup_wake_word_thread(stop_monitor, speech_trigger, mic_lock, robot_left, robot_right)
     speech_thread = setup_speech_thread(stop_monitor, speech_trigger, mic_lock, robot_left, robot_right)
     
-    # for _ in range(5):  # Execute once
-    #     run_robot_threads(robot_left, robot_right, start_event, left_completion, right_completion,
-    #                         left_trajectory_events, right_trajectory_events, trajectory_syncs, trajectory_config)
     try:
         while True:
             time.sleep(1)  # Small sleep to prevent busy waiting
